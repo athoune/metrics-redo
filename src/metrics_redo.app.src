@@ -1,0 +1,12 @@
+{application, metrics_redo,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { metrics_redo_app, []}},
+  {env, []}
+ ]}.
