@@ -36,8 +36,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 value(Key) ->
-    V = redo:cmd(["GET", atom_to_list(Key)]),
-    V.
+    list_to_integer(binary_to_list(redo:cmd(["GET", atom_to_list(Key)]))).
 
 flush() ->
     case redo:cmd(["FLUSHDB"]) of
@@ -72,7 +71,7 @@ redis_test_() ->
                 ok = metrics_redis:flush(),
                 metrics_counter:incr(popo, 42),
                 timer:sleep(10),
-                ?assertEqual(<<"42">>, metrics_redis:value(popo))
+                ?assertEqual(42, metrics_redis:value(popo))
             end
         }.
 
