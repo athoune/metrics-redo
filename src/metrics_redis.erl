@@ -55,8 +55,7 @@ ping() ->
 -include_lib("eunit/include/eunit.hrl").
 
 redis_test_() ->
-    {spawn,
-        [{setup,
+        {setup,
             fun() ->
                 application:load(sasl),
                 application:set_env(sasl, sasl_error_logger, {file, "metrics.log"}),
@@ -75,7 +74,7 @@ redis_test_() ->
                 timer:sleep(10),
                 ?assertEqual(<<"42">>, metrics_redis:value(popo))
             end
-        }]}.
+        }.
 
 -endif.
 
