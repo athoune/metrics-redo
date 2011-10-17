@@ -1,3 +1,8 @@
+%%
+%% Configuration is a proplists :
+%%   frequency: 60 seconds
+%%   period   : 3600 seconds
+%%
 -module(metrics_redis).
 -author('mathieu@garambrogne.net').
 
@@ -9,9 +14,21 @@ handle_info/2, terminate/2, code_change/3]).
 
 -export([value/1, flush/0, ping/0]).
 
-init([]) ->
+-record(conf, {
+    frequency,
+    period,
+    old_box
+    }).
+
+init(Conf) ->
     {ok, _} = redo:start_link(),
-    {ok, []}.
+    F = proplists:get_value(frequency, Conf, 60),
+    P = proplists:get_value(period,Conf, 3600),
+    {ok, #conf{
+        frequency = F,
+        period = P,
+        old_box = nil
+    }}.
 
 handle_call(_Request, State) ->
     {ok, State}.
@@ -20,6 +37,24 @@ handle_event({incr_counter, Key, Incr}, State) ->
     [I] = io_lib:format("~B", [Incr]),
     <<"OK">> = redo:cmd(["INCRBY", atom_to_list(Key), I]),
     io:format("popo", []),
+    {ok, State};
+
+handle_event({append_gauge, Key, Value}, State) ->
+    B   = timebox(State#conf.period, State#conf.frequency),
+    Cmd = case State#conf.old_box of
+        nil -> [];
+        Old ->
+            case Old of
+                B -> [];
+                _ ->
+                    [O] = io_lib:format("~w:~B", [Key, State#conf.old_box]),
+                [["DEL", O]]
+        end
+    end,
+    io:format("~w~n", [Cmd]),
+    [K] = io_lib:format("~w:~B", [Key, B]),
+    [V] = io_lib:format("~B", [Value]),
+    <<"OK">> = redo:cmd(Cmd ++ [["RPUSH", K, V]]),
     {ok, State};
 
 handle_event(Msg, State) ->
@@ -50,6 +85,13 @@ ping() ->
         Msg        -> {error, Msg}
     end.
 
+% Private
+
+timebox(Period, Frequency) ->
+    {Mega, Sec, _} = now(),
+    S = Mega * 1000000 + Sec,
+    (S rem Period) div Frequency.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -71,7 +113,9 @@ redis_test_() ->
                 ok = metrics_redis:flush(),
                 metrics_counter:incr(popo, 42),
                 timer:sleep(10),
-                ?assertEqual(42, metrics_redis:value(popo))
+                ?assertEqual(42, metrics_redis:value(popo)),
+                ok = metrics_gauge:append(speed, 70),
+                ok = metrics_gauge:append(speed, 75)
             end
         }.
 
