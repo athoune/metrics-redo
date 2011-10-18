@@ -12,7 +12,7 @@
 -export([init/1, handle_call/2, handle_event/2,
 handle_info/2, terminate/2, code_change/3]).
 
--export([value/1, flush/0, ping/0]).
+-export([value/1, gauge/1, gauges/1, flush/0, ping/0]).
 
 -record(conf, {
     frequency,
@@ -50,8 +50,7 @@ handle_event({append_gauge, Key, Value}, State) ->
         end
     end,
     K = io_lib:format("~w:~w", [Key, B]),
-    R = redo:cmd(Cmd ++ [["RPUSH", K, Value]]),
-    io:format("append ~w~n", [R]),
+    redo:cmd(Cmd ++ [["RPUSH", K, Value]]),
     {ok, State};
 
 handle_event(Msg, State) ->
@@ -67,18 +66,34 @@ terminate(_Reason, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+% Counter value
 value(Key) ->
     case redo:cmd(["GET", atom_to_list(Key)]) of
         undefined -> undefined;
                 V -> list_to_integer(binary_to_list(V))
     end.
 
+gauge(Key) ->
+    L = redo:cmd(["LLEN", Key]),
+    lists:map(fun(X) ->
+        list_to_integer(binary_to_list(X)) end,
+        redo:cmd(["LRANGE", Key, 0, L])).
+
+% All gauges for a key
+gauges(Prefix) ->
+    lists:map(fun(X) ->
+            {binary_to_list(X), gauge(X)}
+        end,
+        redo:cmd(["KEYS", io_lib:format("~w:*", [Prefix])])).
+
+% Empty the redisDB
 flush() ->
     case redo:cmd(["FLUSHDB"]) of
         <<"OK">> -> ok;
         Msg      -> {error, Msg}
     end.
 
+% Ping the redis server
 ping() ->
     case redo:cmd(["PING"]) of
         <<"PONG">> -> ok;
@@ -116,7 +131,9 @@ redis_test_() ->
                 ?assertEqual(42, metrics_redis:value(popo)),
                 ok = metrics_gauge:append(speed, 70),
                 ok = metrics_gauge:append(speed, 75),
-                ?debugFmt("Keys : ~w~n", [redo:cmd(["KEYS", "speed*"])])
+                ok = metrics_gauge:append(speed, 65),
+                timer:sleep(10),
+                ?debugFmt("Gauges : ~w~n", [gauges(speed)])
             end
         }.
 
