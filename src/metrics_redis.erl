@@ -34,9 +34,7 @@ handle_call(_Request, State) ->
     {ok, State}.
 
 handle_event({incr_counter, Key, Incr}, State) ->
-    [I] = io_lib:format("~B", [Incr]),
-    <<"OK">> = redo:cmd(["INCRBY", atom_to_list(Key), I]),
-    io:format("popo", []),
+   redo:cmd(["INCRBY", atom_to_list(Key), Incr]),
     {ok, State};
 
 handle_event({append_gauge, Key, Value}, State) ->
@@ -47,14 +45,13 @@ handle_event({append_gauge, Key, Value}, State) ->
             case Old of
                 B -> [];
                 _ ->
-                    [O] = io_lib:format("~w:~B", [Key, State#conf.old_box]),
-                [["DEL", O]]
+                    O = io_lib:format("~w:~B", [Key, State#conf.old_box]),
+                    [["DEL", O]]
         end
     end,
-    io:format("~w~n", [Cmd]),
-    [K] = io_lib:format("~w:~B", [Key, B]),
-    [V] = io_lib:format("~B", [Value]),
-    <<"OK">> = redo:cmd(Cmd ++ [["RPUSH", K, V]]),
+    K = io_lib:format("~w:~w", [Key, B]),
+    R = redo:cmd(Cmd ++ [["RPUSH", K, Value]]),
+    io:format("append ~w~n", [R]),
     {ok, State};
 
 handle_event(Msg, State) ->
@@ -71,7 +68,10 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 value(Key) ->
-    list_to_integer(binary_to_list(redo:cmd(["GET", atom_to_list(Key)]))).
+    case redo:cmd(["GET", atom_to_list(Key)]) of
+        undefined -> undefined;
+                V -> list_to_integer(binary_to_list(V))
+    end.
 
 flush() ->
     case redo:cmd(["FLUSHDB"]) of
@@ -100,7 +100,7 @@ redis_test_() ->
             fun() ->
                 application:load(sasl),
                 application:set_env(sasl, sasl_error_logger, {file, "metrics.log"}),
-                error_logger:tty(false),
+                error_logger:tty(true),
                 error_logger:logfile({open, "metrics.log"}),
                 ok = application:start(metrics)
             end,
@@ -115,7 +115,8 @@ redis_test_() ->
                 timer:sleep(10),
                 ?assertEqual(42, metrics_redis:value(popo)),
                 ok = metrics_gauge:append(speed, 70),
-                ok = metrics_gauge:append(speed, 75)
+                ok = metrics_gauge:append(speed, 75),
+                ?debugFmt("Keys : ~w~n", [redo:cmd(["KEYS", "speed*"])])
             end
         }.
 
